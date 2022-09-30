@@ -2,15 +2,17 @@ module Frontend exposing (..)
 
 import Browser exposing (UrlRequest(..))
 import Browser.Navigation as Nav
+import Element
+import Element.Font
 import Html
 import Html.Attributes as Attr
+import Http
+import Json.Decode as Decode exposing (Decoder)
+import Json.Encode
 import Lamdera
+import Time
 import Types exposing (..)
 import Url
-
-
-type alias Model =
-    FrontendModel
 
 
 app =
@@ -25,16 +27,16 @@ app =
         }
 
 
-init : Url.Url -> Nav.Key -> ( Model, Cmd FrontendMsg )
+init : Url.Url -> Nav.Key -> ( FrontendModel, Cmd FrontendMsg )
 init url key =
     ( { key = key
-      , message = "Welcome to Lamdera! You're looking at the auto-generated base implementation. Check out src/Frontend.elm to start coding!"
+      , history = []
       }
-    , Cmd.none
+    , Http.get { url = "/network-data.har", expect = Http.expectString LoadData }
     )
 
 
-update : FrontendMsg -> Model -> ( Model, Cmd FrontendMsg )
+update : FrontendMsg -> FrontendModel -> ( FrontendModel, Cmd FrontendMsg )
 update msg model =
     case msg of
         UrlClicked urlRequest ->
@@ -55,25 +57,147 @@ update msg model =
         NoOpFrontendMsg ->
             ( model, Cmd.none )
 
+        LoadData result ->
+            case result of
+                Ok jsonText ->
+                    let
+                        bracketIndices =
+                            String.indexes delimiter jsonText
 
-updateFromBackend : ToFrontend -> Model -> ( Model, Cmd FrontendMsg )
+                        history =
+                            String.indexes "conversations.history" jsonText
+                                |> List.concatMap
+                                    (\urlPos ->
+                                        getJsonObject urlPos 0 bracketIndices jsonText
+                                            |> Decode.decodeString
+                                                (Decode.field "response"
+                                                    (Decode.field "content"
+                                                        (Decode.field "text"
+                                                            (Decode.andThen
+                                                                (\content ->
+                                                                    case Decode.decodeString decodeHistory content of
+                                                                        Ok ok ->
+                                                                            Decode.succeed ok
+
+                                                                        Err error ->
+                                                                            Decode.fail (Decode.errorToString error)
+                                                                )
+                                                                Decode.string
+                                                            )
+                                                        )
+                                                    )
+                                                )
+                                            |> (\a ->
+                                                    case a of
+                                                        Ok list ->
+                                                            list
+
+                                                        Err error ->
+                                                            let
+                                                                _ =
+                                                                    Debug.log "error" error
+                                                            in
+                                                            []
+                                               )
+                                    )
+                    in
+                    ( { model | history = history }, Cmd.none )
+
+                Err error ->
+                    let
+                        _ =
+                            Debug.log "error" error
+                    in
+                    ( model, Cmd.none )
+
+
+decodeHistory : Decoder (List Message)
+decodeHistory =
+    Decode.field "messages" (Decode.list decodeMessage)
+
+
+decodeMessage : Decoder Message
+decodeMessage =
+    Decode.field "text" Decode.string
+        |> Decode.andThen
+            (\messageText ->
+                if messageText == "This message was deleted." then
+                    Decode.succeed DeletedMessage
+
+                else if String.contains "> has joined the channel" messageText then
+                    Decode.succeed UserJoinedMessage
+
+                else if String.contains " has left the channel" messageText then
+                    Decode.succeed UserLeftMessage
+
+                else
+                    Decode.map
+                        (\a -> Message_ a messageText |> NormalMessage)
+                        (Decode.field "ts"
+                            (Decode.andThen
+                                (\text ->
+                                    case String.toFloat text of
+                                        Just float ->
+                                            float * 1000 |> round |> Time.millisToPosix |> Decode.succeed
+
+                                        Nothing ->
+                                            Decode.fail "Invalid timestamp"
+                                )
+                                Decode.string
+                            )
+                        )
+            )
+
+
+delimiter =
+    "      },\n      {"
+
+
+getJsonObject urlPos previousIndex startEndIndices jsonText =
+    case startEndIndices of
+        first :: rest ->
+            if first > urlPos then
+                String.slice (previousIndex + String.length delimiter - 1) (first + 7) jsonText
+
+            else
+                getJsonObject urlPos first rest jsonText
+
+        [] ->
+            ""
+
+
+updateFromBackend : ToFrontend -> FrontendModel -> ( FrontendModel, Cmd FrontendMsg )
 updateFromBackend msg model =
     case msg of
         NoOpToFrontend ->
             ( model, Cmd.none )
 
 
-view : Model -> Browser.Document FrontendMsg
+view : FrontendModel -> Browser.Document FrontendMsg
 view model =
     { title = ""
     , body =
-        [ Html.div [ Attr.style "text-align" "center", Attr.style "padding-top" "40px" ]
-            [ Html.img [ Attr.src "https://lamdera.app/lamdera-logo-black.png", Attr.width 150 ] []
-            , Html.div
-                [ Attr.style "font-family" "sans-serif"
-                , Attr.style "padding-top" "40px"
-                ]
-                [ Html.text model.message ]
-            ]
+        [ Element.layout
+            [ Element.Font.size 16, Element.padding 16 ]
+            (Element.column
+                [ Element.spacing 32 ]
+                (List.map
+                    (\message ->
+                        case message of
+                            NormalMessage { time, text } ->
+                                Element.paragraph [] [ Element.text text ]
+
+                            DeletedMessage ->
+                                Element.none
+
+                            UserJoinedMessage ->
+                                Element.none
+
+                            UserLeftMessage ->
+                                Element.none
+                    )
+                    model.history
+                )
+            )
         ]
     }
