@@ -3,6 +3,10 @@
 I wanted to see if the Elm slack #jobs channel was getting more/less job posts over time. This is my results:
 ![image](https://user-images.githubusercontent.com/5068391/193423555-22136f19-f5d9-49be-8e54-f9a5c8cc71a2.png)
 
+## About the data
+
+I collected all the messages from the #jobs channel and then by hand went through all the messages picking out job postings that looked serious and included Elm. This took about 30 minutes to do so it's possible I made mistakes. Also some companies post the same opening again after a few months. I decided to count these mostly because it was easier to do. If you don't think they should be included then consider this graph a slight overestimation.
+
 ## Reproducing this data
 
 The way I collected the data was by:
