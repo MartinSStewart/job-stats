@@ -5,7 +5,7 @@ import Browser.Navigation as Nav
 import Chart as C
 import Chart.Attributes as CA
 import Data
-import Date
+import Date exposing (Date, Interval(..))
 import Dict exposing (Dict)
 import Element
 import Element.Font
@@ -123,7 +123,7 @@ update msg model =
                                                         PinnedMessage ->
                                                             Nothing
                                                 )
-                                            |> List.uniqueBy .time
+                                            |> List.uniqueBy .text
                                     )
                     in
                     ( { model
@@ -321,33 +321,22 @@ intToMonth month =
             Debug.todo "error"
 
 
-roundToMonths : Time.Posix -> Int
-roundToMonths time =
-    Time.toYear Time.utc time * 12 + (Time.toMonth Time.utc time |> monthToInt)
+dateToTime : Date -> Time.Posix
+dateToTime date =
+    Date.toIsoString date |> Iso8601.toTime |> Result.withDefault (Time.millisToPosix 0)
 
 
 view : FrontendModel -> Browser.Document FrontendMsg
 view model =
     let
-        minTime : Time.Posix
-        minTime =
-            List.minimumBy (.message >> .time >> Time.posixToMillis) model.history
-                |> Maybe.map (.message >> .time)
-                |> Maybe.withDefault (Time.millisToPosix 0)
-
-        maxTime : Time.Posix
+        maxTime : Date
         maxTime =
             List.maximumBy (.message >> .time >> Time.posixToMillis) model.history
                 |> Maybe.map (.message >> .time)
                 |> Maybe.withDefault (Time.millisToPosix 0)
+                |> Date.fromPosix Time.utc
 
-        minValue =
-            roundToMonths minTime
-
-        maxValue =
-            roundToMonths maxTime
-
-        dataList : Dict Int { start : Time.Posix, y : Float }
+        dataList : Dict Int { start : Date, y : Float }
         dataList =
             Dict.empty
 
@@ -356,15 +345,19 @@ view model =
             List.foldl
                 (\a state ->
                     if a.isChecked then
+                        let
+                            date =
+                                Date.fromPosix Time.utc a.message.time |> Date.floor Month
+                        in
                         Dict.update
-                            (roundToMonths a.message.time)
+                            (Date.toRataDie date)
                             (\value ->
                                 (case value of
                                     Just b ->
                                         { b | y = b.y + 1 }
 
                                     Nothing ->
-                                        { start = a.message.time, y = 1 }
+                                        { start = date, y = 1 }
                                 )
                                     |> Just
                             )
@@ -377,29 +370,13 @@ view model =
                 model.history
                 |> Dict.toList
                 |> List.map Tuple.second
-                |> List.greedyGroupsOfWithStep 2 1
                 |> List.map
-                    (\pair ->
-                        case pair of
-                            [ a, b ] ->
-                                { start = a.start
-                                , end =
-                                    Date.fromPosix Time.utc a.start
-                                        |> Date.add Date.Months 1
-                                        |> Date.toIsoString
-                                        |> Iso8601.toTime
-                                        |> Result.withDefault (Time.millisToPosix 0)
-                                , y = a.y
-                                }
-
-                            [ a ] ->
-                                { start = a.start, end = maxTime, y = a.y }
-
-                            _ ->
-                                Debug.todo ""
+                    (\a ->
+                        { start = dateToTime a.start
+                        , end = Date.add Date.Months 1 a.start |> dateToTime
+                        , y = a.y
+                        }
                     )
-                |> List.sortBy (.start >> Time.posixToMillis >> negate)
-                |> Debug.log "list"
     in
     { title = ""
     , body =
@@ -413,7 +390,8 @@ view model =
                     [ CA.height 300
                     , CA.width 900
                     ]
-                    [ C.xLabels [ CA.times Time.utc ]
+                    [ C.xTicks [ CA.times Time.utc, CA.amount 20, CA.withGrid ]
+                    , C.xLabels [ CA.times Time.utc, CA.amount 20, CA.withGrid ]
                     , C.yLabels [ CA.ints, CA.withGrid ]
                     , C.bars
                         [ CA.x1 (.start >> Time.posixToMillis >> toFloat)
