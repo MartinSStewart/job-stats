@@ -4,14 +4,18 @@ import Browser exposing (UrlRequest(..))
 import Browser.Navigation as Nav
 import Chart as C
 import Chart.Attributes as CA
+import Data
+import Date
 import Dict exposing (Dict)
 import Element
 import Element.Font
 import Element.Input
 import Http
+import Iso8601
 import Json.Decode as Decode exposing (Decoder)
 import Lamdera
 import List.Extra as List
+import Set
 import Time exposing (Month(..))
 import Types exposing (..)
 import Url
@@ -127,8 +131,10 @@ update msg model =
                             List.map
                                 (\message ->
                                     { isChecked =
-                                        String.startsWith "|" message.text
-                                            && String.contains "Elm" message.text
+                                        Set.member (Time.posixToMillis message.time) Data.data
+
+                                    --String.startsWith "|" message.text
+                                    --    && String.contains "Elm" message.text
                                     , message = message
                                     }
                                 )
@@ -341,18 +347,28 @@ view model =
         maxValue =
             roundToMonths maxTime
 
-        dataList : Dict Int Int
+        dataList : Dict Int { start : Time.Posix, y : Float }
         dataList =
-            List.range (minValue |> Debug.log "minInt") (maxValue |> Debug.log "maxInt")
-                |> List.map (\index -> ( index, 0 ))
-                |> Dict.fromList
+            Dict.empty
 
-        data : List Float
+        data : List { start : Time.Posix, end : Time.Posix, y : Float }
         data =
             List.foldl
                 (\a state ->
                     if a.isChecked then
-                        Dict.update (roundToMonths a.message.time) (Maybe.withDefault 0 >> (+) 1 >> Just) state
+                        Dict.update
+                            (roundToMonths a.message.time)
+                            (\value ->
+                                (case value of
+                                    Just b ->
+                                        { b | y = b.y + 1 }
+
+                                    Nothing ->
+                                        { start = a.message.time, y = 1 }
+                                )
+                                    |> Just
+                            )
+                            state
 
                     else
                         state
@@ -360,7 +376,30 @@ view model =
                 dataList
                 model.history
                 |> Dict.toList
-                |> List.map (Tuple.second >> toFloat)
+                |> List.map Tuple.second
+                |> List.greedyGroupsOfWithStep 2 1
+                |> List.map
+                    (\pair ->
+                        case pair of
+                            [ a, b ] ->
+                                { start = a.start
+                                , end =
+                                    Date.fromPosix Time.utc a.start
+                                        |> Date.add Date.Months 1
+                                        |> Date.toIsoString
+                                        |> Iso8601.toTime
+                                        |> Result.withDefault (Time.millisToPosix 0)
+                                , y = a.y
+                                }
+
+                            [ a ] ->
+                                { start = a.start, end = maxTime, y = a.y }
+
+                            _ ->
+                                Debug.todo ""
+                    )
+                |> List.sortBy (.start >> Time.posixToMillis >> negate)
+                |> Debug.log "list"
     in
     { title = ""
     , body =
@@ -371,33 +410,47 @@ view model =
             (Element.column
                 []
                 [ C.chart
-                    [ CA.height 100
-                    , CA.width 300
+                    [ CA.height 300
+                    , CA.width 900
                     ]
-                    [ C.xTicks [ CA.amount ((1 + maxValue - minValue) // 12) ]
-                    , C.yTicks []
-                    , C.xLabels
-                        [ CA.format
-                            (\value ->
-                                let
-                                    a =
-                                        minValue + round value
-
-                                    year =
-                                        a // 12
-
-                                    month =
-                                        modBy 12 a
-                                in
-                                String.fromInt month ++ " " ++ String.fromInt year
-                            )
-                        , CA.fontSize 8
+                    [ C.xLabels [ CA.times Time.utc ]
+                    , C.yLabels [ CA.ints, CA.withGrid ]
+                    , C.bars
+                        [ CA.x1 (.start >> Time.posixToMillis >> toFloat)
+                        , CA.x2 (.end >> Time.posixToMillis >> toFloat)
+                        , CA.margin 0.1
                         ]
-                    , C.yLabels [ CA.fontSize 8 ]
-                    , C.xAxis []
-                    , C.yAxis []
-                    , C.bars [] [ C.bar identity [] ] data
+                        [ C.bar .y [] ]
+                        data
                     ]
+                    --C.chart
+                    --    [ CA.height 100
+                    --    , CA.width 300
+                    --    ]
+                    --    [ C.xTicks [ CA.amount ((1 + maxValue - minValue) // 12) ]
+                    --    , C.yTicks []
+                    --    , C.xLabels
+                    --        [ CA.format
+                    --            (\value ->
+                    --                let
+                    --                    a =
+                    --                        minValue + round value
+                    --
+                    --                    year =
+                    --                        a // 12
+                    --
+                    --                    month =
+                    --                        modBy 12 a
+                    --                in
+                    --                String.fromInt month ++ " " ++ String.fromInt year
+                    --            )
+                    --        , CA.fontSize 8
+                    --        ]
+                    --    , C.yLabels [ CA.fontSize 8 ]
+                    --    , C.xAxis []
+                    --    , C.yAxis []
+                    --    , C.bars [] [ C.bar identity [] ] data
+                    --    ]
                     |> Element.html
                     |> Element.el [ Element.width Element.fill, Element.padding 64 ]
                 , Element.column
