@@ -9,7 +9,7 @@ import Url exposing (Url)
 
 type alias FrontendModel =
     { key : Key
-    , history : List Message
+    , history : List { isChecked : Bool, message : Message_ }
     }
 
 
@@ -18,6 +18,7 @@ type Message
     | DeletedMessage
     | UserJoinedMessage
     | UserLeftMessage
+    | PinnedMessage
 
 
 type alias Message_ =
@@ -34,6 +35,7 @@ type FrontendMsg
     | UrlChanged Url
     | NoOpFrontendMsg
     | LoadData (Result Http.Error String)
+    | PressedCheckbox Time.Posix Bool
 
 
 type ToBackend

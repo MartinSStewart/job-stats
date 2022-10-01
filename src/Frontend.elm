@@ -2,15 +2,17 @@ module Frontend exposing (..)
 
 import Browser exposing (UrlRequest(..))
 import Browser.Navigation as Nav
+import Chart as C
+import Chart.Attributes as CA
+import Dict exposing (Dict)
 import Element
 import Element.Font
-import Html
-import Html.Attributes as Attr
+import Element.Input
 import Http
 import Json.Decode as Decode exposing (Decoder)
-import Json.Encode
 import Lamdera
-import Time
+import List.Extra as List
+import Time exposing (Month(..))
 import Types exposing (..)
 import Url
 
@@ -99,9 +101,41 @@ update msg model =
                                                             in
                                                             []
                                                )
+                                            |> List.filterMap
+                                                (\message ->
+                                                    case message of
+                                                        NormalMessage message_ ->
+                                                            Just message_
+
+                                                        DeletedMessage ->
+                                                            Nothing
+
+                                                        UserJoinedMessage ->
+                                                            Nothing
+
+                                                        UserLeftMessage ->
+                                                            Nothing
+
+                                                        PinnedMessage ->
+                                                            Nothing
+                                                )
+                                            |> List.uniqueBy .time
                                     )
                     in
-                    ( { model | history = history }, Cmd.none )
+                    ( { model
+                        | history =
+                            List.map
+                                (\message ->
+                                    { isChecked =
+                                        String.startsWith "|" message.text
+                                            && String.contains "Elm" message.text
+                                    , message = message
+                                    }
+                                )
+                                history
+                      }
+                    , Cmd.none
+                    )
 
                 Err error ->
                     let
@@ -109,6 +143,28 @@ update msg model =
                             Debug.log "error" error
                     in
                     ( model, Cmd.none )
+
+        PressedCheckbox time isChecked ->
+            let
+                newHistory =
+                    List.updateIf (.message >> .time >> (==) time)
+                        (\a -> { a | isChecked = isChecked })
+                        model.history
+
+                _ =
+                    Debug.log "history"
+                        (List.filterMap
+                            (\a ->
+                                if a.isChecked then
+                                    Just a.message.time
+
+                                else
+                                    Nothing
+                            )
+                            newHistory
+                        )
+            in
+            ( { model | history = newHistory }, Cmd.none )
 
 
 decodeHistory : Decoder (List Message)
@@ -129,6 +185,9 @@ decodeMessage =
 
                 else if String.contains " has left the channel" messageText then
                     Decode.succeed UserLeftMessage
+
+                else if String.contains " pinned a message to this channel." messageText then
+                    Decode.succeed PinnedMessage
 
                 else
                     Decode.map
@@ -173,31 +232,194 @@ updateFromBackend msg model =
             ( model, Cmd.none )
 
 
+monthToInt : Month -> Int
+monthToInt month =
+    case month of
+        Jan ->
+            0
+
+        Feb ->
+            1
+
+        Mar ->
+            2
+
+        Apr ->
+            3
+
+        May ->
+            4
+
+        Jun ->
+            5
+
+        Jul ->
+            6
+
+        Aug ->
+            7
+
+        Sep ->
+            8
+
+        Oct ->
+            9
+
+        Nov ->
+            10
+
+        Dec ->
+            11
+
+
+intToMonth : Int -> Month
+intToMonth month =
+    case month of
+        0 ->
+            Jan
+
+        1 ->
+            Feb
+
+        2 ->
+            Mar
+
+        3 ->
+            Apr
+
+        4 ->
+            May
+
+        5 ->
+            Jun
+
+        6 ->
+            Jul
+
+        7 ->
+            Aug
+
+        8 ->
+            Sep
+
+        9 ->
+            Oct
+
+        10 ->
+            Nov
+
+        11 ->
+            Dec
+
+        _ ->
+            Debug.todo "error"
+
+
+roundToMonths : Time.Posix -> Int
+roundToMonths time =
+    Time.toYear Time.utc time * 12 + (Time.toMonth Time.utc time |> monthToInt)
+
+
 view : FrontendModel -> Browser.Document FrontendMsg
 view model =
+    let
+        minTime : Time.Posix
+        minTime =
+            List.minimumBy (.message >> .time >> Time.posixToMillis) model.history
+                |> Maybe.map (.message >> .time)
+                |> Maybe.withDefault (Time.millisToPosix 0)
+
+        maxTime : Time.Posix
+        maxTime =
+            List.maximumBy (.message >> .time >> Time.posixToMillis) model.history
+                |> Maybe.map (.message >> .time)
+                |> Maybe.withDefault (Time.millisToPosix 0)
+
+        minValue =
+            roundToMonths minTime
+
+        maxValue =
+            roundToMonths maxTime
+
+        dataList : Dict Int Int
+        dataList =
+            List.range (minValue |> Debug.log "minInt") (maxValue |> Debug.log "maxInt")
+                |> List.map (\index -> ( index, 0 ))
+                |> Dict.fromList
+
+        data : List Float
+        data =
+            List.foldl
+                (\a state ->
+                    if a.isChecked then
+                        Dict.update (roundToMonths a.message.time) (Maybe.withDefault 0 >> (+) 1 >> Just) state
+
+                    else
+                        state
+                )
+                dataList
+                model.history
+                |> Dict.toList
+                |> List.map (Tuple.second >> toFloat)
+    in
     { title = ""
     , body =
         [ Element.layout
-            [ Element.Font.size 16, Element.padding 16 ]
+            [ Element.Font.size 16
+            , Element.padding 16
+            ]
             (Element.column
-                [ Element.spacing 32 ]
-                (List.map
-                    (\message ->
-                        case message of
-                            NormalMessage { time, text } ->
-                                Element.paragraph [] [ Element.text text ]
+                []
+                [ C.chart
+                    [ CA.height 100
+                    , CA.width 300
+                    ]
+                    [ C.xTicks [ CA.amount ((1 + maxValue - minValue) // 12) ]
+                    , C.yTicks []
+                    , C.xLabels
+                        [ CA.format
+                            (\value ->
+                                let
+                                    a =
+                                        minValue + round value
 
-                            DeletedMessage ->
-                                Element.none
+                                    year =
+                                        a // 12
 
-                            UserJoinedMessage ->
-                                Element.none
-
-                            UserLeftMessage ->
-                                Element.none
+                                    month =
+                                        modBy 12 a
+                                in
+                                String.fromInt month ++ " " ++ String.fromInt year
+                            )
+                        , CA.fontSize 8
+                        ]
+                    , C.yLabels [ CA.fontSize 8 ]
+                    , C.xAxis []
+                    , C.yAxis []
+                    , C.bars [] [ C.bar identity [] ] data
+                    ]
+                    |> Element.html
+                    |> Element.el [ Element.width Element.fill, Element.padding 64 ]
+                , Element.column
+                    [ Element.spacing 32, Element.width Element.fill ]
+                    (List.reverse model.history
+                        |> List.map
+                            (\{ isChecked, message } ->
+                                Element.Input.checkbox
+                                    [ Element.width Element.fill ]
+                                    { onChange = PressedCheckbox message.time
+                                    , icon = Element.Input.defaultCheckbox
+                                    , checked = isChecked
+                                    , label =
+                                        String.split "Elm" message.text
+                                            |> List.map Element.text
+                                            |> List.intersperse (Element.el [ Element.Font.bold ] (Element.text "Elm"))
+                                            |> Element.paragraph []
+                                            |> Element.Input.labelRight [ Element.width Element.fill ]
+                                    }
+                            )
                     )
-                    model.history
-                )
+                ]
             )
         ]
     }
