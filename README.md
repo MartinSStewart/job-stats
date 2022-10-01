@@ -7,7 +7,7 @@ I wanted to see if the Elm slack #jobs channel was getting more/less job posts o
 
 The way I collected the data was by:
 1. Go to #jobs channel in Elm slack
-2. Opening dev tools in Firefox and go to the network tab
+2. Open dev tools in Firefox and go to the network tab
 3. Refresh the page
 4. Start scrolling up until you reach the beginning of the channel (make sure you do this during one of the free trial periods Slack sometimes gives, otherwise you won't see any messages older than a month)
 5. Once you've reached the beginning, export all the network traffic to a .har file
