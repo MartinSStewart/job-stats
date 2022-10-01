@@ -10,6 +10,7 @@ import Dict exposing (Dict)
 import Element
 import Element.Font
 import Element.Input
+import Html
 import Http
 import Iso8601
 import Json.Decode as Decode exposing (Decoder)
@@ -238,89 +239,6 @@ updateFromBackend msg model =
             ( model, Cmd.none )
 
 
-monthToInt : Month -> Int
-monthToInt month =
-    case month of
-        Jan ->
-            0
-
-        Feb ->
-            1
-
-        Mar ->
-            2
-
-        Apr ->
-            3
-
-        May ->
-            4
-
-        Jun ->
-            5
-
-        Jul ->
-            6
-
-        Aug ->
-            7
-
-        Sep ->
-            8
-
-        Oct ->
-            9
-
-        Nov ->
-            10
-
-        Dec ->
-            11
-
-
-intToMonth : Int -> Month
-intToMonth month =
-    case month of
-        0 ->
-            Jan
-
-        1 ->
-            Feb
-
-        2 ->
-            Mar
-
-        3 ->
-            Apr
-
-        4 ->
-            May
-
-        5 ->
-            Jun
-
-        6 ->
-            Jul
-
-        7 ->
-            Aug
-
-        8 ->
-            Sep
-
-        9 ->
-            Oct
-
-        10 ->
-            Nov
-
-        11 ->
-            Dec
-
-        _ ->
-            Debug.todo "error"
-
-
 dateToTime : Date -> Time.Posix
 dateToTime date =
     Date.toIsoString date |> Iso8601.toTime |> Result.withDefault (Time.millisToPosix 0)
@@ -329,13 +247,6 @@ dateToTime date =
 view : FrontendModel -> Browser.Document FrontendMsg
 view model =
     let
-        maxTime : Date
-        maxTime =
-            List.maximumBy (.message >> .time >> Time.posixToMillis) model.history
-                |> Maybe.map (.message >> .time)
-                |> Maybe.withDefault (Time.millisToPosix 0)
-                |> Date.fromPosix Time.utc
-
         dataList : Dict Int { start : Date, y : Float }
         dataList =
             Dict.empty
@@ -393,42 +304,18 @@ view model =
                     [ C.xTicks [ CA.times Time.utc, CA.amount 20, CA.withGrid ]
                     , C.xLabels [ CA.times Time.utc, CA.amount 20, CA.withGrid ]
                     , C.yLabels [ CA.ints, CA.withGrid ]
+                    , C.labelAt .min
+                        CA.middle
+                        [ CA.moveLeft 35, CA.rotate 90 ]
+                        [ Html.text "Job posts per month" ]
                     , C.bars
                         [ CA.x1 (.start >> Time.posixToMillis >> toFloat)
                         , CA.x2 (.end >> Time.posixToMillis >> toFloat)
-                        , CA.margin 0.1
+                        , CA.margin 0.05
                         ]
                         [ C.bar .y [] ]
                         data
                     ]
-                    --C.chart
-                    --    [ CA.height 100
-                    --    , CA.width 300
-                    --    ]
-                    --    [ C.xTicks [ CA.amount ((1 + maxValue - minValue) // 12) ]
-                    --    , C.yTicks []
-                    --    , C.xLabels
-                    --        [ CA.format
-                    --            (\value ->
-                    --                let
-                    --                    a =
-                    --                        minValue + round value
-                    --
-                    --                    year =
-                    --                        a // 12
-                    --
-                    --                    month =
-                    --                        modBy 12 a
-                    --                in
-                    --                String.fromInt month ++ " " ++ String.fromInt year
-                    --            )
-                    --        , CA.fontSize 8
-                    --        ]
-                    --    , C.yLabels [ CA.fontSize 8 ]
-                    --    , C.xAxis []
-                    --    , C.yAxis []
-                    --    , C.bars [] [ C.bar identity [] ] data
-                    --    ]
                     |> Element.html
                     |> Element.el [ Element.width Element.fill, Element.padding 64 ]
                 , Element.column

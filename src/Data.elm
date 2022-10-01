@@ -3,6 +3,8 @@ module Data exposing (data)
 import Set exposing (Set)
 
 
+{-| All the messages that I considered to be job postings
+-}
 data : Set Int
 data =
     Set.fromList
