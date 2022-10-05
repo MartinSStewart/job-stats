@@ -3,8 +3,10 @@ module Types exposing (..)
 import Browser exposing (UrlRequest)
 import Browser.Navigation exposing (Key)
 import Http
+import Lamdera.Wire3 exposing (Bytes)
 import Time
 import Url exposing (Url)
+import Zip exposing (Zip)
 
 
 type alias FrontendModel =
@@ -34,7 +36,7 @@ type FrontendMsg
     = UrlClicked UrlRequest
     | UrlChanged Url
     | NoOpFrontendMsg
-    | LoadData (Result Http.Error String)
+    | LoadData (Result Http.Error Bytes)
     | PressedCheckbox Time.Posix Bool
 
 

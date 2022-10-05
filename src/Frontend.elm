@@ -2,9 +2,10 @@ module Frontend exposing (..)
 
 import Browser exposing (UrlRequest(..))
 import Browser.Navigation as Nav
+import Bytes
+import Bytes.Decode
 import Chart as C
 import Chart.Attributes as CA
-import Data
 import Date exposing (Date, Interval(..))
 import Dict exposing (Dict)
 import Element
@@ -16,10 +17,13 @@ import Iso8601
 import Json.Decode as Decode exposing (Decoder)
 import Lamdera
 import List.Extra as List
+import MarkedAsJobs
 import Set
 import Time exposing (Month(..))
 import Types exposing (..)
 import Url
+import Zip exposing (Zip)
+import Zip.Entry
 
 
 app =
@@ -39,7 +43,19 @@ init url key =
     ( { key = key
       , history = []
       }
-    , Http.get { url = "/network-data.har", expect = Http.expectString LoadData }
+    , Http.get
+        { url = "/jobs.zip"
+        , expect =
+            Http.expectBytesResponse LoadData
+                (\response ->
+                    case response of
+                        Http.GoodStatus_ _ body ->
+                            Ok body
+
+                        _ ->
+                            Debug.todo ""
+                )
+        }
     )
 
 
@@ -66,73 +82,69 @@ update msg model =
 
         LoadData result ->
             case result of
-                Ok jsonText ->
+                Ok bytes ->
                     let
-                        bracketIndices =
-                            String.indexes delimiter jsonText
+                        zip : Zip
+                        zip =
+                            case Zip.fromBytes bytes of
+                                Just zip_ ->
+                                    zip_
+
+                                Nothing ->
+                                    Debug.todo "Invalid zip"
+
+                        files : List String
+                        files =
+                            Zip.entries zip
+                                |> List.map
+                                    (\entry ->
+                                        case Zip.Entry.toString entry of
+                                            Ok text ->
+                                                text
+
+                                            Err _ ->
+                                                Debug.todo "zip decode error"
+                                    )
 
                         history =
-                            String.indexes "conversations.history" jsonText
-                                |> List.concatMap
-                                    (\urlPos ->
-                                        getJsonObject urlPos 0 bracketIndices jsonText
-                                            |> Decode.decodeString
-                                                (Decode.field "response"
-                                                    (Decode.field "content"
-                                                        (Decode.field "text"
-                                                            (Decode.andThen
-                                                                (\content ->
-                                                                    case Decode.decodeString decodeHistory content of
-                                                                        Ok ok ->
-                                                                            Decode.succeed ok
+                            List.concatMap
+                                (\file ->
+                                    case
+                                        Decode.decodeString
+                                            (Decode.list decodeMessage)
+                                            file
+                                    of
+                                        Ok messages ->
+                                            messages
 
-                                                                        Err error ->
-                                                                            Decode.fail (Decode.errorToString error)
-                                                                )
-                                                                Decode.string
-                                                            )
-                                                        )
-                                                    )
-                                                )
-                                            |> (\a ->
-                                                    case a of
-                                                        Ok list ->
-                                                            list
+                                        Err _ ->
+                                            []
+                                )
+                                files
+                                |> List.filterMap
+                                    (\message ->
+                                        case message of
+                                            NormalMessage message_ ->
+                                                Just message_
 
-                                                        Err error ->
-                                                            let
-                                                                _ =
-                                                                    Debug.log "error" error
-                                                            in
-                                                            []
-                                               )
-                                            |> List.filterMap
-                                                (\message ->
-                                                    case message of
-                                                        NormalMessage message_ ->
-                                                            Just message_
+                                            DeletedMessage ->
+                                                Nothing
 
-                                                        DeletedMessage ->
-                                                            Nothing
+                                            UserJoinedMessage ->
+                                                Nothing
 
-                                                        UserJoinedMessage ->
-                                                            Nothing
+                                            UserLeftMessage ->
+                                                Nothing
 
-                                                        UserLeftMessage ->
-                                                            Nothing
-
-                                                        PinnedMessage ->
-                                                            Nothing
-                                                )
-                                            |> List.uniqueBy .text
+                                            PinnedMessage ->
+                                                Nothing
                                     )
-                    in
-                    ( { model
-                        | history =
+
+                        history2 =
                             List.map
                                 (\message ->
                                     { isChecked =
-                                        Set.member (Time.posixToMillis message.time) Data.data
+                                        Set.member (Time.posixToMillis message.time) MarkedAsJobs.data
 
                                     --String.startsWith "|" message.text
                                     --    && String.contains "Elm" message.text
@@ -140,6 +152,18 @@ update msg model =
                                     }
                                 )
                                 history
+
+                        --_ =
+                        --    Debug.log "match" ( List.count .isChecked history2, Set.size MarkedAsJobs.data )
+                        --
+                        --_ =
+                        --    Debug.log "are unique"
+                        --        ( List.length (List.uniqueBy (.message >> .time) history2)
+                        --        , List.length history2
+                        --        )
+                    in
+                    ( { model
+                        | history = history2
                       }
                     , Cmd.none
                     )

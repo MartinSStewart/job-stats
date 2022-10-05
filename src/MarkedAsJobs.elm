@@ -1,4 +1,4 @@
-module Data exposing (data)
+module MarkedAsJobs exposing (data)
 
 import Set exposing (Set)
 
