@@ -9,5 +9,6 @@ I wanted to see if the Elm slack #jobs channel was getting more/less job posts o
 
 ## Reproducing this graph
 
-1. Download Lamdera https://dashboard.lamdera.app/docs/download and then run `lamdera live` in your terminal
-2. You should see the graph at the top of the screen and all the messages below!
+1. Download Lamdera https://dashboard.lamdera.app/docs/download and then run `lamdera live` in your terminal while in the root folder for this repo
+2. Go to localhost:8000
+3. You should see the graph at the top of the screen and all the messages below!
